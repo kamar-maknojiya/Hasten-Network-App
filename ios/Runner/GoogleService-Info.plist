@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyDNIKfNXCN_Xqi7IzN2QfNSlAtWinHdzr8</string>
+	<key>GCM_SENDER_ID</key>
+	<string>430458216107</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.vision.broadband</string>
+	<key>PROJECT_ID</key>
+	<string>visionbroadband-ae1fa</string>
+	<key>STORAGE_BUCKET</key>
+	<string>visionbroadband-ae1fa.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:430458216107:ios:876fdf8c560ef7967121ee</string>
+</dict>
+</plist>

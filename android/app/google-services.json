@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "430458216107",
+    "project_id": "visionbroadband-ae1fa",
+    "storage_bucket": "visionbroadband-ae1fa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:430458216107:android:bbb2159978013acf7121ee",
+        "android_client_info": {
+          "package_name": "com.vision.broadband"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCgOJ8m82tbz9QtHlExNZsb26QH4cY0tg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
