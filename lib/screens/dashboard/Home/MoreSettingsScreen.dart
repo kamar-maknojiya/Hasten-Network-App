@@ -5,8 +5,11 @@ import 'package:lottie/lottie.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vision_broadband/networking/BaseClient.dart';
 import 'package:vision_broadband/networking/api_url.dart';
+import 'package:vision_broadband/networking/auth_api.dart';
+import 'package:vision_broadband/widgets/RechargeReminder.dart';
 import 'package:vision_broadband/screens/auth/LoginScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Home/ServiceHistoryScreen.dart';
+import 'package:vision_broadband/screens/dashboard/Kyc/KycScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Profile/ChangeMacScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Profile/EditProfileScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Invoice/InvoiceScreen.dart';
@@ -117,6 +120,14 @@ class _MoreSettingsScreenState extends State<MoreSettingsScreen> {
       "screen": ServiceHistoryScreen(isBack: true),
     },
     {
+      "title": "KYC",
+      "icon": Icons.verified_user_outlined,
+      "permissions": ["ekyc", "manual_kyc"], // shows if either is "1"
+      "color": const Color(0xff0D9488),
+      "bgColor": const Color(0xffE0F2F1),
+      "screen": const KycScreen(),
+    },
+    {
       "title": "Support",
       "icon": Icons.support_agent,
       // "permission": "customer_support_no",
@@ -222,6 +233,12 @@ class _MoreSettingsScreenState extends State<MoreSettingsScreen> {
 
   Map<String, String> permissions = {};
 
+  /// "1" for 1 / "1" / true / "true", otherwise "0"
+  String _flag(Object? v) {
+    final t = v?.toString().toLowerCase();
+    return t == "1" || t == "true" ? "1" : "0";
+  }
+
   Future<void> loadPermissions() async {
     final prefs = await SharedPreferences.getInstance();
     contactNo = prefs.getString('site_mobile_no') ?? '';
@@ -247,6 +264,9 @@ class _MoreSettingsScreenState extends State<MoreSettingsScreen> {
       "customer_support_no": prefs.getString("customer_support_no") ?? "0",
       "statistics_general": prefs.getString("statistics_general") ?? "0",
       "bandwidth": prefs.getString("bandwidth") ?? "0",
+      // KYC tile (saved as int, bool or string depending on the API)
+      "ekyc": _flag(prefs.get("ekyc")),
+      "manual_kyc": _flag(prefs.get("manual_kyc")),
     };
 
     setState(() {});
@@ -578,6 +598,11 @@ class _MoreSettingsScreenState extends State<MoreSettingsScreen> {
         isLogout = false;
       });
       if (response != null && response['status'] == true) {
+        // Clear the saved login (this screen used to keep the token,
+        // so the app logged straight back in on next launch)
+        await RechargeReminder.cancelAll();
+        await LoginMode.clearPrefsKeepLoginMode();
+        if (!mounted) return;
         successToast(response['message']);
         Navigator.pushAndRemoveUntil(
           context,

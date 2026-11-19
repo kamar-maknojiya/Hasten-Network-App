@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vision_broadband/screens/auth/AppLockScreen.dart';
 import 'package:vision_broadband/screens/auth/LoginScreen.dart';
+import 'package:vision_broadband/widgets/AppLock.dart';
 import 'package:vision_broadband/screens/dashboard/BottomNavScreen.dart';
 import 'package:vision_broadband/theme/app_colors.dart';
 import 'package:vision_broadband/theme/theme_manager.dart';
@@ -41,9 +43,13 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     if (token != null && token.isNotEmpty) {
+      final locked = await AppLock.isEnabled();
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => BottomNavScreen()),
+        MaterialPageRoute(
+          builder: (_) => locked ? const AppLockScreen() : BottomNavScreen(),
+        ),
       );
     } else {
       Navigator.pushReplacement(
@@ -77,7 +83,7 @@ class _SplashScreenState extends State<SplashScreen>
                   return Transform.scale(
                     scale: 1 + (_controller.value * .05),
                     child: Image.asset(
-                      "assets/LogoApp.png",
+                      isDark ? "assets/LogoApp_dark.png" : "assets/LogoApp.png",
                       width: 220.w,
                       fit: BoxFit.cover,
                     ),
@@ -92,7 +98,7 @@ class _SplashScreenState extends State<SplashScreen>
               //     ).createShader(bounds);
               //   },
               //   child: Text(
-              //     "vision Broadband",
+              //     "Hasten Network",
               //     style: GoogleFonts.poppins(
               //       fontSize: 25,
               //       fontWeight: FontWeight.bold,

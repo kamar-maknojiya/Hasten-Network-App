@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 class AppColors {
 
-  static const Color primary = Color(0xFFD81B60);
-  static const Color secondary = Color(0xFF0B72D9);
+  static const Color primary = Color(0xFF085998);
+  static const Color secondary = Color(0xFF09A4D9);
   static const Color navy = Color(0xFF122C55);
 
   static const Color orange = Color(0xFFF5A623);
@@ -26,9 +26,9 @@ class AppColors {
   static const textDark = Colors.white;
   static const textLight = Color(0xff1A1A1A);
 
-  /// Lighter pink → deeper pink. Used for CTAs/buttons and any primary-brand fill.
+  /// Hasten light blue → dark blue. Used for CTAs/buttons and any primary-brand fill.
   static const LinearGradient primaryGradient = LinearGradient(
-    colors: [Color(0xFFF0407F), primary],
+    colors: [Color(0xFF09A4D9), primary],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
@@ -44,11 +44,11 @@ class AppColors {
   static const LinearGradient statusCardGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF6B0F3C), primary],
+    colors: [Color(0xFF053A66), primary],
   );
 
   static const SweepGradient usageRingGradient = SweepGradient(
-    colors: [Color(0xFFF0407F), primary, Color(0xFFF0407F)],
+    colors: [Color(0xFF09A4D9), primary, Color(0xFF09A4D9)],
   );
 }
 

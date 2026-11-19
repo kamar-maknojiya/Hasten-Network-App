@@ -1,5 +1,5 @@
-//
-const String mainUrl = "https://ums.visionbroadband.in";   // STAGE URL
+// base url
+const String mainUrl = "https://account.hastenindia.com";
 
 const String baseUrl = mainUrl + "/api/v1/subscriber";
 
@@ -74,3 +74,15 @@ const String REFRESH_DEVICE_DATA = baseUrl + "/refresh_all_device_data";
 const String GET_PROFILE_DETAILS = baseUrl + "/details";
 const String GET_SITE_SETTINGS = baseUrl + "/site-settings";
 const String UPDATE_PROFILE_DETAILS = baseUrl + "/update-profile";
+
+// Forgot password (OTP)
+const String FORGOT_PASSWORD_URL = baseUrl + "/forgot-password";
+const String VERIFY_FORGOT_OTP_URL = baseUrl + "/verify-forgot-password-otp";
+const String RESET_PASSWORD_OTP_URL = baseUrl + "/reset-password-via-otp";
+
+// Login with email / mobile (OTP)
+const String LOGIN_OTP_SEND_URL = baseUrl + "/login-with-email-mobile/send-otp";
+const String LOGIN_OTP_VERIFY_URL = baseUrl + "/login-with-email-mobile/verify-otp";
+
+// Self diagnose
+const String SELF_DIAGNOSE_URL = baseUrl + "/netzur-ai/diagnose";

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vision_broadband/networking/BaseClient.dart';
 import 'package:vision_broadband/networking/api_url.dart';
+import 'package:vision_broadband/networking/auth_api.dart';
 import 'package:vision_broadband/screens/auth/LoginScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Home/ServiceHistoryScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Profile/ChangeMacScreen.dart';
@@ -20,7 +21,9 @@ import 'package:vision_broadband/screens/dashboard/Wifi/WifiScreen.dart';
 import 'package:vision_broadband/theme/app_colors.dart';
 import 'package:vision_broadband/theme/theme_manager.dart';
 import 'package:vision_broadband/widgets/AppConfig.dart';
+import 'package:vision_broadband/widgets/AppLock.dart';
 import 'package:vision_broadband/widgets/CacheHelper.dart';
+import 'package:vision_broadband/widgets/RechargeReminder.dart';
 import 'package:vision_broadband/widgets/CustomAppbar.dart';
 import 'package:vision_broadband/widgets/Network/AppScaffold.dart';
 import 'package:vision_broadband/widgets/Shimmer/ProfileShimmerScreen.dart';
@@ -114,6 +117,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       "isCall": true,
     },
     {
+      "title": "App Lock",
+      "icon": Icons.fingerprint_rounded,
+      "color": const Color(0xff4F7BFF),
+      "isAppLock": true,
+    },
+    {
       "title": "Logout",
       "icon": Icons.logout,
       "color": AppColors.red,
@@ -152,6 +161,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       // Save latest permission
       await CacheHelper.save("permission_cache", permission);
+      await LoginMode.saveFromPermissions(permission);
 
       setState(() {
         permissions = permission;
@@ -172,9 +182,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  bool appLockSupported = false;
+  bool appLockEnabled = false;
+
+  Future<void> loadAppLock() async {
+    final supported = await AppLock.isSupported();
+    final enabled = await AppLock.isEnabled();
+    if (!mounted) return;
+    setState(() {
+      appLockSupported = supported;
+      appLockEnabled = enabled;
+    });
+  }
+
+  /// Ask for fingerprint / PIN before turning App Lock on or off.
+  Future<void> toggleAppLock() async {
+    final turnOn = !appLockEnabled;
+    final ok = await AppLock.authenticate(
+      turnOn ? "Confirm to turn on App Lock" : "Confirm to turn off App Lock",
+    );
+    if (!ok || !mounted) return;
+    await AppLock.setEnabled(turnOn);
+    setState(() => appLockEnabled = turnOn);
+    successToast(turnOn ? "App Lock turned on" : "App Lock turned off");
+  }
+
   List<Map<String, dynamic>> get visibleSettings {
     return settings
         .where((item) {
+          if (item["isAppLock"] == true && !appLockSupported) return false;
           // Multiple permissions
           if (item["isCall"] == true &&
               (contactNo.trim().isEmpty || contactNo == "null")) {
@@ -202,6 +238,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     getPermission();
     getProfile();
+    loadAppLock();
+  }
+
+  /// Pull-to-refresh: reload profile + permissions without the full shimmer
+  Future<void> onRefresh() async {
+    await Future.wait([
+      getPermission(),
+      getProfile(showLoader: false),
+    ]);
   }
 
   String formatDate(String? date) {
@@ -227,16 +272,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void getProfile() async {
-    setState(() {
-      isLoading = true;
-    });
+  Future<void> getProfile({bool showLoader = true}) async {
+    if (showLoader) {
+      setState(() {
+        isLoading = true;
+      });
+    }
     var response = await BaseClient()
         .get(GET_PROFILE_DETAILS, context)
         .catchError((err) {
           print(err);
           return null;
         });
+    if (!mounted) return;
     if (response != null && response['status'] == true) {
       // await CacheHelper.save("profile_cache", response['data']);
       setState(() {
@@ -245,8 +293,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         isLoading = false;
       });
     } else {
-      errToast(response?['message']);
+      errToast(response?['message'] ?? "Error! Something went wrong");
       final cache = await CacheHelper.read("dashboard_cache");
+      if (!mounted) return;
       if (cache != null) {
         setState(() {
           userData = cache;
@@ -271,6 +320,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final subText = isDark ? Colors.white60 : Colors.black54;
 
     final username = userData['username']?.toString() ?? '';
+    final rawFullName = userData['fullname']?.toString().trim() ?? '';
+    final fullName =
+        (rawFullName.isEmpty || rawFullName == 'null') ? username : rawFullName;
+
+    // Avatar initials from full name: "Rahul Sharma" -> "RS", "demo" -> "DE"
+    final nameParts =
+        fullName.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final initials = nameParts.isEmpty
+        ? 'NA'
+        : nameParts.length >= 2
+            ? (nameParts[0][0] + nameParts[1][0]).toUpperCase()
+            : nameParts[0]
+                .substring(0, nameParts[0].length >= 2 ? 2 : 1)
+                .toUpperCase();
 
     return AppScaffold(
       child: Scaffold(
@@ -278,8 +341,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         body: isLoading
             ? const ProfileShimmerScreen()
             : SafeArea(
-                child: SingleChildScrollView(
-                  physics: BouncingScrollPhysics(),
+                child: RefreshIndicator(
+                  color: AppColors.primary,
+                  strokeWidth: 3,
+                  onRefresh: onRefresh,
+                  child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Column(
                     children: [
@@ -304,7 +371,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 decoration: BoxDecoration(borderRadius: BorderRadius.circular(12.r), color: AppColors.primary),
                                 child: Center(
                                   child: Text(
-                                    username.isEmpty ? 'NA' : username.substring(0, username.length >= 2 ? 2 : username.length).toUpperCase(),
+                                    initials,
                                     style: GoogleFonts.poppins(color: Colors.white, fontSize: 18.sp, fontWeight: FontWeight.w600),
                                   ),
                                 ),
@@ -315,7 +382,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        username,
+                        fullName,
                         style: GoogleFonts.poppins(color: text, fontSize: 16.sp, fontWeight: FontWeight.w600),
                       ),
                       Text(
@@ -388,7 +455,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(height: 8),
                             buildRow(
                               "Username",
-                              userData['fullname'] ?? '-',
+                              username.isEmpty ? '-' : username,
                               text,
                               isPrimary: true,
                             ),
@@ -630,6 +697,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     print("Tapped ${item["title"]}");
                                     if (item["isLogout"] == true) {
                                       _showLogOutDialog(context, isDark);
+                                    } else if (item["isAppLock"] == true) {
+                                      await toggleAppLock();
                                     } else if (item["isCall"] == true) {
                                       await makeCall();
                                     } else if (item["screen"] != null) {
@@ -663,7 +732,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
-                                  trailing: const Icon(Icons.chevron_right),
+                                  trailing: item["isAppLock"] == true
+                                      ? Switch(
+                                          value: appLockEnabled,
+                                          activeColor: AppColors.primary,
+                                          onChanged: (_) => toggleAppLock(),
+                                        )
+                                      : const Icon(Icons.chevron_right),
                                 );
                               },
                             ),
@@ -673,6 +748,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       SizedBox(height: 30.h),
                     ],
                   ),
+                ),
                 ),
               ),
       ),
@@ -938,7 +1014,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final prefs = await SharedPreferences.getInstance();
         final token = prefs.getString('token');
         print('TOKEN1 :: $token');
-        await prefs.clear();
+        await RechargeReminder.cancelAll();
+        await LoginMode.clearPrefsKeepLoginMode();
         await prefs.remove('token');
         print('TOKEN2 :: $token');
         successToast(response['message']);

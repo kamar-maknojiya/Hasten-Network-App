@@ -16,9 +16,9 @@ class NotificationService {
       GlobalKey<NavigatorState>();
 
   static const AndroidNotificationChannel channel = AndroidNotificationChannel(
-    'Skynet_channel',
-    'Skynet Notifications',
-    description: 'This channel is used for Skynet notifications',
+    'hasten_channel',
+    'Hasten Network Notifications',
+    description: 'This channel is used for Hasten Network notifications',
     importance: Importance.max,
   );
 

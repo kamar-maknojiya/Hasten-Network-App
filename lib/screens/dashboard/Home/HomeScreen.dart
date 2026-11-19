@@ -6,7 +6,12 @@ import 'package:lottie/lottie.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vision_broadband/networking/BaseClient.dart';
 import 'package:vision_broadband/networking/api_url.dart';
+import 'package:vision_broadband/networking/auth_api.dart';
+import 'package:vision_broadband/screens/dashboard/Diagnose/SelfDiagnoseScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Invoice/InvoiceScreen.dart';
+import 'package:vision_broadband/screens/dashboard/Kyc/EkycScreen.dart';
+import 'package:vision_broadband/screens/dashboard/Kyc/KycScreen.dart';
+import 'package:vision_broadband/screens/dashboard/Kyc/kyc_service.dart';
 import 'package:vision_broadband/screens/dashboard/Home/MoreSettingsScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Home/PayDueAmountScreen.dart';
 import 'package:vision_broadband/screens/dashboard/Profile/ProfileScreen.dart';
@@ -18,6 +23,8 @@ import 'package:vision_broadband/screens/dashboard/Profile/UpcomingRechargeScree
 import 'package:vision_broadband/theme/app_colors.dart';
 import 'package:vision_broadband/widgets/AppConfig.dart';
 import 'package:vision_broadband/widgets/CacheHelper.dart';
+import 'package:vision_broadband/widgets/ExpiryRing.dart';
+import 'package:vision_broadband/widgets/RechargeReminder.dart';
 import 'package:vision_broadband/widgets/Shimmer/HomeShimmerScreen.dart';
 import 'package:vision_broadband/widgets/PrimaryButton.dart';
 import 'package:vision_broadband/widgets/TopAlertToast.dart';
@@ -50,10 +57,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await Future.wait([
       getDashboard(),
-      getPermission(),
-      loadPermissions(),
+      getPermission(), // calls /permissions and saves the values
       getActivityLogs(),
     ]);
+    // read the saved permissions only AFTER /permissions has saved them,
+    // otherwise Recharge / Fix Internet stay hidden on a fresh open
+    await loadPermissions();
+    await loadKycReminder();
 
     if (!mounted) return;
 
@@ -64,7 +74,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<bool> hasPermission(String permission) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(permission) == "1";
+    final v = prefs.get(permission)?.toString().toLowerCase();
+    return v == "1" || v == "true";
   }
 
   Future<bool> hasStatisticsPermission() async {
@@ -79,13 +90,204 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<bool> hasRechargePermission() async {
     final prefs = await SharedPreferences.getInstance();
-    return (prefs.getString("recharge_with_online") == "1") || (prefs.getString("recharge_pin") == "1");
+    bool on(String k) {
+      final v = prefs.get(k)?.toString().toLowerCase();
+      return v == "1" || v == "true";
+    }
+    return on("recharge_with_online") || on("recharge_pin");
   }
 
   bool hasRecharge = false;
 
+  /// Permission self_diagnose -> small "Diagnose" button when offline
+  bool hasSelfDiagnose = false;
+
+  /// KYC row below Quick Actions - shown whenever KYC is not complete
+  bool kycPending = false;
+  bool kycLoadFailed = false;
+  KycPlan? kycPlan;
+  String kycMismatchText = '';
+  int? kycVendorType;
+
+  Future<void> loadKycReminder() async {
+    try {
+      final s = await KycService.fetchStatus();
+      final plan = KycPlan.of(s);
+      print("KYC HOME :: ekyc=${plan.needsEkyc} docs=${plan.needsDocs} ekycDone=${plan.ekycDone} "
+          "mismatch=${plan.mismatch} docs=${plan.docsUploaded}/${plan.docsTotal} done=${plan.done}");
+      if (!mounted) return;
+      setState(() {
+        kycPlan = plan;
+        kycMismatchText = s.mismatchText;
+        kycVendorType = s.vendorType;
+        kycLoadFailed = false;
+        kycPending = (plan.needsEkyc || plan.needsDocs) && !plan.done;
+      });
+    } catch (e) {
+      print("KYC reminder error :: $e");
+      if (!mounted) return;
+      // only nag when this subscriber has a KYC permission
+      final perms = await KycService.permissions();
+      if (!mounted) return;
+      setState(() {
+        kycLoadFailed = true;
+        kycPending = perms.any;
+      });
+    }
+  }
+
+  Future<void> openKycScreen({int? tab}) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => KycScreen(initialTab: tab)));
+    loadKycReminder();
+  }
+
+  Future<void> openEkyc() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => EkycScreen(vendorType: kycVendorType)),
+    );
+    loadKycReminder();
+  }
+
+  /// Slim KYC row below Quick Actions.
+  Widget kycCard(Color card, Color text, bool isDark) {
+    const teal = Color(0xFF0F9D7A);
+    const amber = Color(0xFFD98A0B);
+    final blue = isDark ? AppColors.secondary : AppColors.primary;
+    final subStyle = GoogleFonts.poppins(color: isDark ? Colors.white60 : Colors.black54, fontSize: 11.sp);
+    final p = kycPlan;
+
+    IconData icon;
+    Color main;
+    String title;
+    Widget below;
+    VoidCallback onTap;
+    Color? bgTint;
+    String? countText;
+
+    Widget chip(IconData i, String label, Color fg, Color bg) => Container(
+          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 2.h),
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(i, size: 12.r, color: fg),
+              SizedBox(width: 3.w),
+              Text(label, style: GoogleFonts.poppins(color: fg, fontSize: 10.5.sp, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        );
+
+    if (kycLoadFailed || p == null) {
+      icon = Icons.shield_outlined;
+      main = blue;
+      title = "Check your KYC";
+      below = Text("Tap to see your KYC status", style: subStyle);
+      onTap = () => openKycScreen();
+    } else if (p.mismatch) {
+      icon = Icons.warning_amber_rounded;
+      main = amber;
+      bgTint = amber;
+      title = "Complete your KYC";
+      below = Text("e-KYC details don't match",
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.poppins(color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF8A5A12), fontSize: 11.sp));
+      onTap = () => openKycScreen(tab: 0);
+    } else if (p.both) {
+      icon = Icons.verified_user_outlined;
+      main = blue;
+      title = "Complete your KYC";
+      const amberBg = Color(0x29F5A524);
+      final greenBg = AppColors.green.withOpacity(.12);
+      below = Wrap(
+        spacing: 6.w,
+        runSpacing: 4.h,
+        children: [
+          p.ekycDone
+              ? chip(Icons.check_rounded, "e-KYC done", AppColors.green, greenBg)
+              : chip(Icons.fingerprint_rounded, "e-KYC pending",
+                  isDark ? const Color(0xFFFBBF24) : const Color(0xFF8A5A12), amberBg),
+          p.docsDone
+              ? chip(Icons.check_rounded, "Docs done", AppColors.green, greenBg)
+              : chip(Icons.upload_file_outlined, "Docs ${p.docsUploaded}/${p.docsTotal}", blue, blue.withOpacity(.12)),
+        ],
+      );
+      onTap = () => openKycScreen();
+    } else if (p.needsEkyc) {
+      icon = Icons.fingerprint_rounded;
+      main = teal;
+      title = "Complete your KYC";
+      below = Text(kycVendorType == 2 ? "e-KYC with DigiLocker \u00b7 2 min" : "e-KYC with Aadhaar \u00b7 2 min",
+          style: subStyle);
+      onTap = openEkyc;
+    } else {
+      icon = Icons.upload_file_outlined;
+      main = blue;
+      title = "Complete your KYC";
+      final emptySeg = blue.withOpacity(isDark ? .22 : .15);
+      countText = "${p.docsUploaded}/${p.docsTotal}";
+      below = Row(
+        children: [
+          for (var i = 0; i < p.docsTotal; i++) ...[
+            if (i > 0) const SizedBox(width: 3),
+            Expanded(
+              child: TweenAnimationBuilder<Color?>(
+                tween: ColorTween(begin: emptySeg, end: i < p.docsUploaded ? AppColors.secondary : emptySeg),
+                duration: Duration(milliseconds: 400 + i * 120),
+                builder: (_, c, __) => Container(
+                  height: 4,
+                  decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3)),
+                ),
+              ),
+            ),
+          ],
+        ],
+      );
+      onTap = () => openKycScreen();
+    }
+
+    return Material(
+      color: bgTint == null ? card : Color.alphaBlend(bgTint.withOpacity(isDark ? .14 : .08), card),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: main.withOpacity(isDark ? .30 : .20)),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: main, size: 22.r),
+              SizedBox(width: 10.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(title, style: GoogleFonts.poppins(color: text, fontSize: 13.sp, fontWeight: FontWeight.w600)),
+                    SizedBox(height: 5.h),
+                    below,
+                  ],
+                ),
+              ),
+              SizedBox(width: 10.w),
+              if (countText != null)
+                Text(countText, style: GoogleFonts.poppins(color: main, fontSize: 11.sp, fontWeight: FontWeight.w600)),
+              Icon(Icons.chevron_right_rounded, color: main, size: 22.r),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> loadPermissions() async {
     hasRecharge = await hasRechargePermission();
+    hasSelfDiagnose = await hasPermission("self_diagnose");
     if (mounted) {
       setState(() {});
     }
@@ -214,6 +416,7 @@ class _HomeScreenState extends State<HomeScreen> {
         nextRechargeData = response['data']['next_advance_recharge'];
         // isLoading = false;
       });
+      RechargeReminder.schedule(parseExpiryDate(response['data']['expiry_date']));
     } else {
       // Load cached dashboard
       final cache = await CacheHelper.read("dashboard_cache");
@@ -276,6 +479,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (response != null && response['status'] == true) {
       final prefs = await SharedPreferences.getInstance();
       final Map<String, dynamic> data = response['data'];
+      await LoginMode.saveFromPermissions(data);
 
       // Save all permissions to SharedPreferences
       for (final entry in data.entries) {
@@ -301,6 +505,7 @@ class _HomeScreenState extends State<HomeScreen> {
         isDue = data['pay_invoice_online'] ?? "0";
         isStateGeneral = data['statistics_general'] ?? "0";
         isBandWidth = data['bandwidth'] ?? "0";
+        hasSelfDiagnose = data['self_diagnose']?.toString() == "1";
       });
 
       print("Permissions saved successfully.");
@@ -367,7 +572,23 @@ class _HomeScreenState extends State<HomeScreen> {
     final subText = isDark ? Colors.white70 : Colors.black54;
     // bool isOnline = false;
     bool isOnline = dashboardData?['connection_status'] == "Online";
+    // "Fix Internet" button: only when offline + self_diagnose permission
+    final showFixInternet = !isOnline && hasSelfDiagnose && dashboardData != null;
     final username = dashboardData?['username']?.toString() ?? '';
+    final rawFullName = dashboardData?['fullname']?.toString().trim() ?? '';
+    final fullName =
+        (rawFullName.isEmpty || rawFullName == 'null') ? username : rawFullName;
+
+    // Avatar initials from full name: "Rahul Sharma" -> "RS", "demo" -> "DE"
+    final nameParts =
+        fullName.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final initials = nameParts.isEmpty
+        ? 'NA'
+        : nameParts.length >= 2
+            ? (nameParts[0][0] + nameParts[1][0]).toUpperCase()
+            : nameParts[0]
+                .substring(0, nameParts[0].length >= 2 ? 2 : 1)
+                .toUpperCase();
 
     return Scaffold(
       backgroundColor: bg,
@@ -400,7 +621,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                                 Text(
-                                  dashboardData?['username'] ?? '',
+                                  fullName,
                                   style: GoogleFonts.poppins(
                                     fontSize: 15.sp,
                                     color: AppColors.primary,
@@ -420,7 +641,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               decoration: BoxDecoration(borderRadius: BorderRadius.circular(12.r), color: AppColors.primary),
                               child: Center(
                                 child: Text(
-                                  username.isEmpty ? 'NA' : username.substring(0, username.length >= 2 ? 2 : username.length).toUpperCase(),
+                                  initials,
                                   style: GoogleFonts.poppins(
                                     color: Colors.white,
                                     fontSize: 18.sp,
@@ -477,42 +698,56 @@ class _HomeScreenState extends State<HomeScreen> {
                                     fontWeight: FontWeight.w400,
                                   ),
                                 ),
+
                               ],
                             ),
                             const SizedBox(height: 6),
 
-                            /// Plan Name
-                            if(packageData != null )       Text(
-                              packageData?['package_name'] ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.poppins(
-                                color: text,
-                                fontSize: 15.sp,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-
-                            /// Expiration
-                        if(dashboardData?['expiry_date'] != null)
-                          Row(
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                Text(
-                                  "Expiration : ",
-                                  style: GoogleFonts.poppins(color: subText, fontSize: 13.sp),
-                                ),
                                 Expanded(
-                                  child: Text(
-                                    formatDate(dashboardData?['expiry_date'] ?? ''),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.poppins(
-                                      color: subText,
-                                      fontSize: 12.sp,
-                                      fontWeight: FontWeight.w600,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                    /// Plan Name
+                                    if(packageData != null )       Text(
+                                      packageData?['package_name'] ?? '',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.poppins(
+                                        color: text,
+                                        fontSize: 15.sp,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
+
+                                    /// Expiration
+                                if(dashboardData?['expiry_date'] != null)
+                                  Row(
+                                      children: [
+                                        Text(
+                                          "Expiration : ",
+                                          style: GoogleFonts.poppins(color: subText, fontSize: 13.sp),
+                                        ),
+                                        Expanded(
+                                          child: Text(
+                                            formatDate(dashboardData?['expiry_date'] ?? ''),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.poppins(
+                                              color: subText,
+                                              fontSize: 12.sp,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    ],
                                   ),
                                 ),
+
                               ],
                             ),
                             if(dashboardData?['expiry_date'] != null)      const SizedBox(height: 6),
@@ -645,17 +880,27 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
 
-                      /// RECHARGE BUTTON
-                      if (hasRecharge)
+                      /// RECHARGE BUTTON (+ "Fix Internet" beside it, only when offline)
+                      if (hasRecharge || showFixInternet)
                         Padding(
                           padding: EdgeInsetsGeometry.only(top: 16),
-                          child: PrimaryButton(
-                            title: "Recharge Now",
-                            icon: Icons.alt_route,
-                            height: 46,
-                            onTap: () {
-                              Navigator.push(context, MaterialPageRoute(builder: (context) => RechargeScreen(isBack: true)));
-                            },
+                          child: Row(
+                            children: [
+                              if (hasRecharge)
+                                Expanded(
+                                  child: PrimaryButton(
+                                    title: showFixInternet ? "Recharge" : "Recharge Now",
+                                    icon: Icons.alt_route,
+                                    height: 46,
+                                    onTap: () {
+                                      Navigator.push(context, MaterialPageRoute(builder: (context) => RechargeScreen(isBack: true)));
+                                    },
+                                  ),
+                                ),
+                              if (hasRecharge && showFixInternet) SizedBox(width: 10.w),
+                              if (showFixInternet)
+                                const Expanded(child: FixInternetButton()),
+                            ],
                           ),
                         ),
                       const SizedBox(height: 16),
@@ -737,7 +982,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 20),
+
+                      /// KYC CARD (below Quick Actions, only while KYC is pending)
+                      if (kycPending)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: kycCard(card, text, isDark),
+                        ),
+                      SizedBox(height: kycPending ? 12 : 20), // same gap above and below the KYC row
                       if (nextRechargeData != null && nextRechargeData!['package'] != null)
                         _upcomingRechargeCard(),
 
@@ -1426,5 +1678,137 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _divider(bool isDark) {
     return Divider(color: isDark ? Colors.white12 : Colors.black12, height: 1);
+  }
+}
+
+/// Warning-amber "Fix Internet" button with a soft, slow blink.
+/// Shown next to Recharge only when the subscriber is offline.
+class FixInternetButton extends StatefulWidget {
+  const FixInternetButton({super.key});
+
+  @override
+  State<FixInternetButton> createState() => _FixInternetButtonState();
+}
+
+class _FixInternetButtonState extends State<FixInternetButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
+  )..repeat(reverse: true); // 2 s full cycle: brighten, then fade back
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Light mode: pale yellow, amber border, dark amber text
+    // Dark mode: deep amber, brighter amber border, bright amber text
+    final bgA = isDark ? const Color(0xFF2E2410) : const Color(0xFFFFF7E0);
+    final bgB = isDark ? const Color(0xFF3F3114) : const Color(0xFFFFF0C2);
+    final borderA = isDark ? const Color(0xFFD97706) : const Color(0xFFF59E0B);
+    final borderB = isDark ? const Color(0xFFF59E0B) : const Color(0xFFFBBF24);
+    final textColor = isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E);
+    const dotColor = Color(0xFFF59E0B);
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SelfDiagnoseScreen(autoStart: true)),
+        );
+      },
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, child) {
+          final t = Curves.easeInOut.transform(_c.value);
+          return Container(
+            height: 46.h,
+            decoration: BoxDecoration(
+              color: Color.lerp(bgA, bgB, t),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Color.lerp(borderA, borderB, t)!, width: 1.5),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const PulseDot(color: dotColor),
+                SizedBox(width: 6.w),
+                Flexible(child: child!),
+              ],
+            ),
+          );
+        },
+        child: Text(
+          "Fix Internet",
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.poppins(
+            color: textColor,
+            fontSize: 14.sp,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small dot with a soft pulsing ring (used in "Fix Internet").
+class PulseDot extends StatefulWidget {
+  final Color color;
+  const PulseDot({super.key, required this.color});
+
+  @override
+  State<PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<PulseDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 22,
+      height: 22,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final t = _c.value;
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 9 + 13 * t,
+                height: 9 + 13 * t,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: widget.color.withOpacity(.5 * (1 - t)),
+                ),
+              ),
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: widget.color),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 }

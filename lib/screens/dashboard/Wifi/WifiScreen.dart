@@ -44,6 +44,24 @@ class _WifiScreenState extends State<WifiScreen> {
   String acsWanSetting = "0";
   String rebootDevice = "0";
 
+  /// No device data on any tab -> customer has no assigned device.
+  bool get noDeviceFound =>
+      wifiList.isEmpty && wanData.isEmpty && wlanList.isEmpty;
+
+  /// The tab currently open shows "Device Not Found".
+  bool get currentTabEmpty {
+    if (tabs.isEmpty) return true;
+    switch (tabs[selectedTab]) {
+      case "WIFI":
+        return wifiList.isEmpty;
+      case "WAN":
+        return wanData.isEmpty;
+      case "WLAN":
+        return wlanList.isEmpty;
+    }
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -562,7 +580,7 @@ class _WifiScreenState extends State<WifiScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             CustomAppbar(title: "WiFi Settings", isBack: widget.isBack),
-                            if (rebootDevice == "1")
+                            if (rebootDevice == "1" && !noDeviceFound)
                               GestureDetector(
                                 onTap: isReboot ? null : rebootData,
                                 child: Container(
@@ -617,6 +635,7 @@ class _WifiScreenState extends State<WifiScreen> {
                                       );
                                     }),
                                     Spacer(),
+                                    if (!currentTabEmpty)
                                     GestureDetector(
                                       onTap: isRefresh
                                           ? null
@@ -674,6 +693,8 @@ class _WifiScreenState extends State<WifiScreen> {
                                           ),
                                         ),
                                       )
+                                    : tabs.isEmpty
+                                    ? buildEmpty()
                                     : Column(
                                         children: [
                                           if (tabs[selectedTab] == "WIFI")
