@@ -103,7 +103,16 @@ class _BottomNavScreenState extends State<BottomNavScreen> {
       child: Scaffold(
         // body: pages[index],
         body: NetworkWrapper(child: pages[index]),
-        bottomNavigationBar: BottomNavigationBar(
+        // iOS: halve the home-indicator gap under the tab bar (Android unchanged)
+        bottomNavigationBar: Builder(builder: (context) {
+          final mq = MediaQuery.of(context);
+          final bottom = mq.viewPadding.bottom > 0 ? mq.viewPadding.bottom * 0.5 : 0.0;
+          return MediaQuery(
+            data: mq.copyWith(
+              padding: mq.padding.copyWith(bottom: bottom),
+              viewPadding: mq.viewPadding.copyWith(bottom: bottom),
+            ),
+            child: BottomNavigationBar(
           currentIndex: index,
           // onTap: (value) {
           //   setState(() {
@@ -163,6 +172,8 @@ class _BottomNavScreenState extends State<BottomNavScreen> {
             ),
           ],
         ),
+          );
+        }),
       ),
     );
   }
